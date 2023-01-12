@@ -1,0 +1,9 @@
+CHROMOSOMES: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] 
+STRATA: [1,2,3,4,6,7]
+# STRATA: [1,7]
+
+permutations: 100
+# CHROMOSOMES: [2] 
+
+gwasdir: "/hpc/hers_en/shared/str_imputation/str_gwas/downsampled_N3000/"
+vcfdir: "/hpc/hers_en/shared/str_imputation/postimputation_qc/downsample_N3000/"

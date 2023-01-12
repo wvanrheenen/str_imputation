@@ -2,3 +2,8 @@ data/*
 logs/*
 plots/*
 .snakemake/*
+
+permutation/data/*
+permutation/logs/*
+permutation/plots/*
+permutation/.snakemake/*

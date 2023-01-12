@@ -1,0 +1,162 @@
+configfile: "config.yml"
+
+gwasdir = config["gwasdir"]
+vcfdir = config["vcfdir"]
+
+rule all:
+    input:
+        expand("data/regenie/step2/s{stratum}_chr{chromosome}_firth_Y{perm}.regenie",
+               stratum=config["STRATA"],
+               chromosome=config["CHROMOSOMES"],
+               perm = [str(x) for x in range(1,config["permutations"]+1)])
+    message:
+        "all done!!!"
+
+rule permute_pheno:
+    input:
+        gwasdir + "s{stratum}_pheno.file"
+    output:
+        expand("data/gwas_input/s{{stratum}}_{ext}",
+                ext=["pheno_permuted.file", "covar.file"])
+    log:
+        "logs/s{stratum}_permute_pheno.err",
+        "logs/s{stratum}_permute_pheno.out"
+    threads: 1
+    resources: mem_mb=4500, time=10
+    params:
+        nperm = config["permutations"],
+        out_prefix = lambda wildcards, output: output[0][:-20]
+    script:
+        "scripts/permute_pheno.R"
+
+#TODO: generalize path to SNPlist
+#TODO: rename to SNP_genotyped
+rule make_SNP_bgen:
+    input:
+        expand(gwasdir + "s{{stratum}}.final.exclude.N3000.{ext}",
+            ext=["bed","bim","fam"])
+    output:
+        expand("data/gwas_input/s{{stratum}}.final.exclude.N3000.{ext}",
+            ext=["bgen","sample"])
+    log:
+        "logs/s{stratum}_make_SNP_bgen.log"
+    threads: 1
+    resources: mem_mb=15000, time=60
+    params:
+        in_prefix = lambda wildcards, input: input[0][:-4],
+        out_prefix = lambda wildcards, output: output[0][:-5],
+        snplist = "/hpc/hers_en/shared/gwas2018/main_results/s{stratum}_genotyped_snps.txt"
+    shell:
+        "plink2 "
+        "--bfile {params.in_prefix} "
+        "--extract {params.snplist} "
+        "--export bgen-1.2 \'bits=8\' "
+        "--out {params.out_prefix} "
+        "--threads {threads} "
+        "--memory {resources.mem_mb}"
+
+rule index_bgen:
+    input:
+        "data/gwas_input/s{stratum}.final.exclude.N3000.bgen"
+    output:
+        "data/gwas_input/s{stratum}.final.exclude.N3000.bgen.bgi"
+    log:
+        "logs/s{stratum}_index_SNP_bgen.log"
+    threads: 1
+    resources: mem_mb=5000, time=15
+    shell:
+        "bgenix -index -g {input}"
+
+rule regenie_step1:
+    input:
+        "data/gwas_input/s{stratum}.final.exclude.N3000.bgen",
+        "data/gwas_input/s{stratum}.final.exclude.N3000.sample",
+        "data/gwas_input/s{stratum}.final.exclude.N3000.bgen.bgi",
+        "data/gwas_input/s{stratum}_pheno_permuted.file",
+        "data/gwas_input/s{stratum}_covar.file"
+    output:
+        "data/regenie/step1/s{stratum}_pred.list"
+    log:
+        "logs/s{stratum}_regenie_step1.log"
+    threads: 8
+    resources: mem_mb=100000, time=1440
+    params:
+        out_prefix = lambda wildcards, output: output[0][:-10],
+        snplist = "/hpc/hers_en/shared/gwas2018/main_results/s{stratum}_genotyped_snps.txt"
+    shell:
+        "regenie "
+        "--step 1 "
+        "--bgen {input[0]} "
+        "--phenoFile {input[3]} "
+        "--covarFile {input[4]} "
+        "--bsize 1000 "
+        "--bt "
+        "--threads {threads} "
+        "--verbose "
+        "--out {params.out_prefix}"
+
+#TODO: check if no information is lost!!
+rule make_STR_bgen:
+    input:
+        vcfdir + "ALS.s{stratum}.EH37K.subset.N3000.imputed.chr{chromosome}.goodstrs_saige_thresholded.vcf.gz"
+    output:
+        expand("data/gwas_input/ALS.s{{stratum}}.EH37K.subset.N3000.imputed.chr{{chromosome}}.goodstrs.thresholded.{ext}",
+            ext=["bgen","sample"])
+    log:
+        "logs/s{stratum}_chr{chromosome}_make_STR_bgen.log"
+    threads: 1
+    resources: mem_mb=15000, time=60
+    params:
+        out_prefix = lambda wildcards, output: output[0][:-5],
+    shell:
+        "plink2 "
+        "--vcf {input} "
+        "--double-id "
+        "--export bgen-1.2 \'bits=8\' "
+        "--out {params.out_prefix} "
+        "--threads {threads} "
+        "--memory {resources.mem_mb}"
+
+rule index_STR_bgen:
+    input:
+        "data/gwas_input/ALS.s{stratum}.EH37K.subset.N3000.imputed.chr{chromosome}.goodstrs.thresholded.bgen"
+    output:
+        "data/gwas_input/ALS.s{stratum}.EH37K.subset.N3000.imputed.chr{chromosome}.goodstrs.thresholded.bgen.bgi"
+    log:
+        "logs/s{stratum}_chr{chromosome}_index_STR_bgen.log"
+    threads: 1
+    resources: mem_mb=5000, time=15
+    shell:
+        "bgenix -index -g {input}"
+
+rule regenie_step2:
+    input:
+        "data/gwas_input/ALS.s{stratum}.EH37K.subset.N3000.imputed.chr{chromosome}.goodstrs.thresholded.bgen",
+        "data/gwas_input/ALS.s{stratum}.EH37K.subset.N3000.imputed.chr{chromosome}.goodstrs.thresholded.bgen.bgi",
+        "data/regenie/step1/s{stratum}_pred.list",
+        "data/gwas_input/s{stratum}_pheno_permuted.file",
+        "data/gwas_input/s{stratum}_covar.file"
+    output:
+        expand("data/regenie/step2/s{{stratum}}_chr{{chromosome}}_firth_Y{perm}.regenie",
+                perm = [str(x) for x in range(1,config["permutations"]+1)])
+    log:
+        "logs/s{stratum}_chr{chromosome}_regenie_step2.log"
+    threads: 8
+    resources: mem_mb=10000, time=240
+    params:
+        out_prefix = lambda wildcards, output: output[0][:-11],
+    shell:
+        "regenie "
+        "--step 2 "
+        "--bgen {input[0]} "
+        "--pred {input[2]} "
+        "--phenoFile {input[3]} "
+        "--covarFile {input[4]} "
+        "--bsize 1000 "
+        "--bt "
+        "--firth "
+        "--pThresh 0.05 "
+        "--out {params.out_prefix}"
+
+# rule meta-analyze
+# rule calculate FDR
